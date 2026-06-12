@@ -5,8 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 // https://vitejs.dev/config/
-export default defineConfig(() => ({
-  base: process.env.VITE_BASE_PATH || '/substack-to-nostr/',
+export default defineConfig(({ mode }) => ({
+  base: process.env.VITE_BASE_PATH || (mode === 'production' ? '/substack-to-nostr/' : '/'),
   server: {
     host: "::",
     port: 8080,
