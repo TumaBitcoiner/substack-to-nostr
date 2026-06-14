@@ -11,6 +11,8 @@ interface Article {
   author?: string;
   content: string;
   sourceUrl: string;
+  images?: string[];
+  coverImage?: string;
 }
 
 const Index = () => {

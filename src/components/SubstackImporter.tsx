@@ -161,6 +161,8 @@ function parseSubstackArticleToMarkdown(html: string, sourceUrl: string): {
   subtitle?: string;
   author?: string;
   content: string;
+  sourceUrl: string;
+  images: string[];
 } {
   // Parse title
   let title = '';
@@ -188,16 +190,16 @@ function parseSubstackArticleToMarkdown(html: string, sourceUrl: string): {
     author = authorMatch[1].trim();
   }
 
-  // Extract main article content
-  let content = '';
-
+  // Extract main article content and images
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const contentRoot = findContentRoot(doc);
   const contentHtml = contentRoot?.outerHTML ?? html;
 
-  // Convert HTML to markdown
-  content = htmlToMarkdown(contentHtml);
+  // Convert HTML to markdown and extract images
+  const result = htmlToMarkdownWithImages(contentHtml);
+  let content = result.markdown;
+  const images = result.images;
 
   // Fallback: extract from og:description if content is empty
   if (!content || content.length < 50) {
@@ -212,10 +214,12 @@ function parseSubstackArticleToMarkdown(html: string, sourceUrl: string): {
     subtitle,
     author,
     content,
+    sourceUrl,
+    images,
   };
 }
 
-function htmlToMarkdown(html: string): string {
+function htmlToMarkdownWithImages(html: string): { markdown: string; images: string[] } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
@@ -224,11 +228,18 @@ function htmlToMarkdown(html: string): string {
 
   removeBoilerplateElements(target);
 
-  const markdown = serializeNodes(Array.from(target.childNodes), 0).trim();
+  const images: string[] = [];
+  const markdown = serializeNodes(Array.from(target.childNodes), 0, images).trim();
 
-  return markdown
-    .replace(/\n\s*\n\s*\n+/g, '\n\n')
-    .trim();
+  // Remove duplicates while preserving order
+  const uniqueImages = Array.from(new Set(images));
+
+  return {
+    markdown: markdown
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .trim(),
+    images: uniqueImages,
+  };
 }
 
 function findContentRoot(doc: Document): HTMLElement | null {
@@ -347,11 +358,11 @@ function removeBoilerplateElements(root: HTMLElement): void {
   });
 }
 
-function serializeNodes(nodes: Node[], depth: number): string {
-  return nodes.map((node) => serializeNode(node, depth)).join('');
+function serializeNodes(nodes: Node[], depth: number, images: string[] = []): string {
+  return nodes.map((node) => serializeNode(node, depth, images)).join('');
 }
 
-function serializeNode(node: Node, depth: number): string {
+function serializeNode(node: Node, depth: number, images: string[] = []): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return node.textContent ?? '';
   }
@@ -371,22 +382,22 @@ function serializeNode(node: Node, depth: number): string {
     case 'h5':
     case 'h6': {
       const level = Number(tag[1]);
-      const text = serializeNodes(Array.from(el.childNodes), depth).trim();
+      const text = serializeNodes(Array.from(el.childNodes), depth, images).trim();
       return `${'#'.repeat(level)} ${text}\n\n`;
     }
     case 'p': {
-      const text = serializeNodes(Array.from(el.childNodes), depth).trim();
+      const text = serializeNodes(Array.from(el.childNodes), depth, images).trim();
       return text ? `${text}\n\n` : '';
     }
     case 'blockquote': {
-      const text = serializeNodes(Array.from(el.childNodes), depth).trim();
+      const text = serializeNodes(Array.from(el.childNodes), depth, images).trim();
       if (!text) return '';
       return `${text.split('\n').map((line) => `> ${line}`).join('\n')}\n\n`;
     }
     case 'ul':
-      return serializeList(el, false, depth);
+      return serializeList(el, false, depth, images);
     case 'ol':
-      return serializeList(el, true, depth);
+      return serializeList(el, true, depth, images);
     case 'pre': {
       const code = el.textContent?.replace(/\n$/, '') ?? '';
       return `\n\`\`\`\n${code}\n\`\`\`\n\n`;
@@ -397,22 +408,25 @@ function serializeNode(node: Node, depth: number): string {
     }
     case 'strong':
     case 'b': {
-      const text = serializeNodes(Array.from(el.childNodes), depth);
+      const text = serializeNodes(Array.from(el.childNodes), depth, images);
       return `**${text}**`;
     }
     case 'em':
     case 'i': {
-      const text = serializeNodes(Array.from(el.childNodes), depth);
+      const text = serializeNodes(Array.from(el.childNodes), depth, images);
       return `*${text}*`;
     }
     case 'a': {
       const href = el.getAttribute('href') ?? '';
-      const text = serializeNodes(Array.from(el.childNodes), depth).trim() || href;
+      const text = serializeNodes(Array.from(el.childNodes), depth, images).trim() || href;
       return `[${text}](${href})`;
     }
     case 'img': {
       const src = el.getAttribute('src') ?? '';
       const alt = el.getAttribute('alt') ?? '';
+      if (src) {
+        images.push(src);
+      }
       return `![${alt}](${src})`;
     }
     case 'br':
@@ -420,15 +434,15 @@ function serializeNode(node: Node, depth: number): string {
     case 'hr':
       return '\n---\n\n';
     case 'li': {
-      const text = serializeNodes(Array.from(el.childNodes), depth).trim();
+      const text = serializeNodes(Array.from(el.childNodes), depth, images).trim();
       return text ? `${'  '.repeat(depth)}- ${text}\n` : '';
     }
     default:
-      return serializeNodes(Array.from(el.childNodes), depth);
+      return serializeNodes(Array.from(el.childNodes), depth, images);
   }
 }
 
-function serializeList(listEl: HTMLElement, ordered: boolean, depth: number): string {
+function serializeList(listEl: HTMLElement, ordered: boolean, depth: number, images: string[] = []): string {
   const liChildren = Array.from(listEl.children).filter((child) => child.tagName.toLowerCase() === 'li') as HTMLElement[];
 
   let markdown = '';
@@ -451,14 +465,14 @@ function serializeList(listEl: HTMLElement, ordered: boolean, depth: number): st
       }
     });
 
-    const lineText = serializeNodes(normalNodes, depth).replace(/\s+/g, ' ').trim();
+    const lineText = serializeNodes(normalNodes, depth, images).replace(/\s+/g, ' ').trim();
     if (lineText) {
       markdown += `${indent}${prefix}${lineText}\n`;
     }
 
     nestedLists.forEach((nestedList) => {
       const isOrdered = nestedList.tagName.toLowerCase() === 'ol';
-      markdown += serializeList(nestedList, isOrdered, depth + 1);
+      markdown += serializeList(nestedList, isOrdered, depth + 1, images);
     });
   });
 

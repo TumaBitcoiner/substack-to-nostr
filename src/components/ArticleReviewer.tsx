@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ArrowLeft, AlertCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CoverImageSelector } from '@/components/CoverImageSelector';
 
 interface Article {
   title: string;
@@ -16,6 +17,8 @@ interface Article {
   author?: string;
   content: string;
   sourceUrl: string;
+  images?: string[];
+  coverImage?: string;
 }
 
 interface ArticleReviewerProps {
@@ -30,10 +33,12 @@ export function ArticleReviewer({ article, onBack, onSuccess }: ArticleReviewerP
   const [content, setContent] = useState(article.content);
   const [summary, setSummary] = useState('');
   const [tags, setTags] = useState('');
+  const [coverImage, setCoverImage] = useState(article.coverImage || '');
   const [isPublishing, setIsPublishing] = useState(false);
 
   const { mutate: publishEvent } = useNostrPublish();
   const { toast } = useToast();
+  const articleImages = article.images || [];
 
   const handlePublish = async () => {
     // Validation
@@ -102,6 +107,11 @@ export function ArticleReviewer({ article, onBack, onSuccess }: ArticleReviewerP
             eventTags.push(['t', cleanTag]);
           }
         });
+      }
+
+      // Add cover image if selected
+      if (coverImage) {
+        eventTags.push(['image', coverImage]);
       }
 
       // Add image/preview tag if needed
@@ -230,6 +240,13 @@ export function ArticleReviewer({ article, onBack, onSuccess }: ArticleReviewerP
             </CardContent>
           </Card>
 
+          <CoverImageSelector
+            articleImages={articleImages}
+            onCoverImageSelected={setCoverImage}
+            selectedCoverImage={coverImage}
+            disabled={isPublishing}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle>Content</CardTitle>
@@ -278,6 +295,16 @@ export function ArticleReviewer({ article, onBack, onSuccess }: ArticleReviewerP
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {coverImage && (
+                <div className="w-full rounded-lg overflow-hidden">
+                  <img
+                    src={coverImage}
+                    alt="Article cover"
+                    className="w-full h-auto max-h-96 object-cover"
+                  />
+                </div>
+              )}
+
               {summary && (
                 <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -323,6 +350,7 @@ export function ArticleReviewer({ article, onBack, onSuccess }: ArticleReviewerP
                     blockquote: ({ node, ...props }) => (
                       <blockquote className="border-l-4 border-slate-300 dark:border-slate-600 pl-4 py-2 mb-4 italic text-slate-600 dark:text-slate-400" {...props} />
                     ),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     code: ({ node, inline, ...props }: any) =>
                       inline ? (
                         <code className="bg-slate-200 dark:bg-slate-800 px-2 py-1 rounded text-sm font-mono text-red-600 dark:text-red-400" {...props} />
